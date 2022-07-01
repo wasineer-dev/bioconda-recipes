@@ -9,11 +9,38 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+stages:
+- stage: 'lint'
+  jobs:
+  - job: 'lint'  
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      maxParallel: 8
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+    steps:
+    - bash: echo "##vso[task.prependpath]$CONDA/bin"
+      displayName: Add conda to PATH
+
+    - bash: |
+        wget https://raw.githubusercontent.com/bioconda/bioconda-common/master/common.sh
+      displayName: Fetch common.sh
+
+    - task: Cache@2
+      inputs:
+        path: "/usr/share/miniconda/envs/bioconda"
+        key: '"$(Agent.OS)" | **/common.sh'
+        cacheHitVar: CACHE_RESTORED
+      displayName: Restore cache
+
+    - script: .azure-pipelines/createEnv.py
+      condition: ne(variables.CACHE_RESTORED, 'true')
+      displayName: Install bioconda-utils
+
+    - bash: |
+          source activate bioconda
+          set -e
+          source=`echo $(Build.SourceBranch) | sed -e "s#^refs/pull/#pull/#"`
+          bioconda-utils lint --loglevel debug --full-report --git-range origin/"$SYSTEM_PULLREQUEST_TARGETBRANCH" "$source"
+      displayName: Lint
+
